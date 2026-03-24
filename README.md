@@ -1,4 +1,4 @@
-# 🤖 基于 LangChain + Qwen 的 RAG 智能客服系统
+# 🤖 基于 LangChain 的 RAG 智能客服系统
 
 本项目是一个基于 **Retrieval-Augmented Generation (RAG)** 技术的智能客服原型。它能够读取本地 TXT 或 PDF 格式的知识库，通过向量化存储与检索，实现基于特定私有知识的精准问答。
 
@@ -33,3 +33,32 @@
 ```bash
 git clone https://github.com/你的用户名/你的项目名.git
 cd 你的项目名
+```
+### 2. 安装依赖
+```Bash
+pip install -r requirements.txt
+```
+### 3. 配置 API Key
+在 config_data.py 中填入你的通义千问
+```Bash
+API Key：Pythondashscope_api_key = "你的API_KEY"
+```
+### 4.运行系统录入知识库（上传尺码推荐表等）：
+```Bash
+streamlit run app_file_uploader.py
+```
+### 5.启动对话主界面：
+```Bash
+streamlit run app_qa.py
+```
+## 📂 目录结构说明
+文件名描述
+* app_file_uploader.py: 知识库自动化构建界面，处理文件上传与解析 。
+* app_qa.py: 智能客服对话前端，支持流式交互 。
+* knowledge_base.py: 核心逻辑类，负责文件拆分、MD5 校验与入库 。
+* rag.py: RAG 链条逻辑实现，处理检索、Prompt 生成与 LLM 调用 。
+* vector_stores.py: 封装向量数据库初始化与检索器配置 。
+* config_data.py: 全局配置参数（模型名称、K值、路径等）。
+
+## 📝 许可证
+本项目采用 MIT License 开源。
