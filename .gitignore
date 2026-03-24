@@ -1,0 +1,6 @@
+.env
+__pycache__/
+chroma_db/
+md5.text
+chat_history/
+*.pyc
