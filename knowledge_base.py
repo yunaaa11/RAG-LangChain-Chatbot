@@ -9,6 +9,21 @@ from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+import tempfile
+
+def load_document_to_string(file_path):
+    """支持多种格式加载并返回纯文本内容"""
+    if file_path.endswith('.pdf'):
+        loader = PyPDFLoader(file_path)
+        # PDF 加载后是 List[Document]，需要合并文本
+        docs = loader.load()
+        return "\n".join([doc.page_content for doc in docs])
+    elif file_path.endswith('.txt'):
+        # 保持原有的文本读取逻辑
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ""
 def check_md5(md5_str:str):
     '''检查传入的md5字符串是否已经被处理过
     return False(md5未处理过) True(已经处理过，已有记录)
@@ -58,29 +73,90 @@ class KnowledgeBaseSerivce(object):
             separators=config.separators,#自然段落花费的符号
             length_function=len,#使用python自带len函数
           )#文本分割器的对象
-    def upload_by_str(self,data:str,filename):
-        """将传入的字符串，进行向量化，存入向量数据库中""" 
-        #先得到传入字符串的md5值
-        md5_hex=get_string_md5(data)
-        if check_md5(md5_hex):
-            return "[跳过]内容已经存在知识库中"
-        if len(data)>config.max_split_char_number:
-            knowledge_chunks:list[str]=self.spliter.split_text(data)
-        else:
-            knowledge_chunks=[data] # 直接作为一个元素的列表
+    # def upload_by_str(self,data:str,filename):
+    #     """将传入的字符串，进行向量化，存入向量数据库中""" 
+    #     #先得到传入字符串的md5值
+    #     md5_hex=get_string_md5(data)
+    #     if check_md5(md5_hex):
+    #         return "[跳过]内容已经存在知识库中"
+    #     if len(data)>config.max_split_char_number:
+    #         knowledge_chunks:list[str]=self.spliter.split_text(data)
+    #     else:
+    #         knowledge_chunks=[data] # 直接作为一个元素的列表
 
-        metadata={
-            "source":filename,
-            "create_time":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "operator":"小曹"
-        }
-        self.chroma.add_texts(#内容就加载到向量里
-            #iterable->list\tuple
-            texts=knowledge_chunks,
-            metadatas=[metadata for _ in knowledge_chunks],
-        )
-        save_md5(md5_hex)
-        return "[成功]内容已经成功载入向量库"
+    #     metadata={
+    #         "source":filename,
+    #         "create_time":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    #         "operator":"小曹"
+    #     }
+    #     self.chroma.add_texts(#内容就加载到向量里
+    #         #iterable->list\tuple
+    #         texts=knowledge_chunks,
+    #         metadatas=[metadata for _ in knowledge_chunks],
+    #     )
+    #     save_md5(md5_hex)
+    #     return "[成功]内容已经成功载入向量库"
+    def upload_by_file(self, uploaded_file, filename):
+        """处理 PDF 上传，增加指针重置逻辑"""
+        # 关键：确保从文件开头开始读取字节
+        uploaded_file.seek(0) 
+        
+        # 1. 创建临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_file.read()) # 使用 .read() 获取全部字节
+            tmp_path = tmp_file.name
+        
+        try:
+            # 2. 加载 PDF
+            loader = PyPDFLoader(tmp_path)
+            pages = loader.load()
+            full_text = "\n".join([page.page_content for page in pages])
+            
+            # 3. 调用之前的分段 MD5 逻辑
+            return self.upload_by_str(full_text, filename)
+        except Exception as e:
+            return f"[错误] PDF 解析失败: {str(e)}"
+        finally:
+            # 4. 清理临时文件
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            else:
+                # 5. 处理 TXT：直接解码并进行分段校验
+                text = uploaded_file.getvalue().decode("utf-8")
+                return self.upload_by_str(text, filename)
+
+    def upload_by_str(self, data: str, filename):
+        """
+        核心逻辑：实现分段 MD5 校验与增量存储
+        """
+        # 1. 将长文本物理切分为多个小片段 (Chunk)
+        knowledge_chunks = self.spliter.split_text(data)
+        
+        new_chunks = []
+        for chunk in knowledge_chunks:
+            # 2. 为每一个小片段计算唯一的 MD5 “指纹”
+            chunk_md5 = get_string_md5(chunk)
+            
+            # 3. 检查该片段是否已记录在 md5.text 中
+            if not check_md5(chunk_md5):
+                # 4. 如果是新内容，加入待添加列表并记录 MD5
+                new_chunks.append(chunk)
+                save_md5(chunk_md5)
+        
+        # 5. 只有识别到新片段时，才调用 API 进行向量化并存入库
+        if new_chunks:
+            self.chroma.add_texts(
+                texts=new_chunks,
+                metadatas=[{
+                    "source": filename,
+                    "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "operator": "小曹" # 保持你原有的元数据标记
+                } for _ in new_chunks]
+            )
+            return f"[成功] 识别到新内容，新增 {len(new_chunks)} 条知识片段"
+        
+        # 6. 如果所有片段都已存在，则跳过，避免重复
+        return "[跳过] 该文件的所有片段已存在于知识库中"
 
 if __name__=='__main__':
     service=KnowledgeBaseSerivce()
