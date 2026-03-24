@@ -13,7 +13,14 @@ class VectorStoreService(object):
         )
     def get_retriever(self):
         """返回向量检索器,方便加入chain"""
-        return self.vector_store.as_retriever(search_kwargs={"k":config.similarity_threshold})
+        # 使用 search_type="similarity_score_threshold" 进行分数过滤
+        return self.vector_store.as_retriever(
+            search_type="similarity_score_threshold",# 启用阈值模式
+            search_kwargs={
+                "k": config.top_k,
+                "score_threshold": config.score_threshold # 只有相似度够高的才保留
+            }
+        )
     
 if __name__=='__main__':
     from langchain_community.embeddings import DashScopeEmbeddings
