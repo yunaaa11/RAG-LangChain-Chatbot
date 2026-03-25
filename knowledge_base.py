@@ -16,7 +16,7 @@ def load_document_to_string(file_path):
     """支持多种格式加载并返回纯文本内容"""
     if file_path.endswith('.pdf'):
         loader = PyPDFLoader(file_path)
-        # PDF 加载后是 List[Document]，需要合并文本
+        # PDF 加载后docs是 List[Document]，需要合并文本
         docs = loader.load()
         return "\n".join([doc.page_content for doc in docs])
     elif file_path.endswith('.txt'):
@@ -41,6 +41,7 @@ def check_md5(md5_str:str):
     
 def save_md5(md5_str:str):
     """将传入md5字符串,记录到文件内保存"""
+    #append（追加） 不存在，会自动创建新文件。
     with open(config.md5_path,'a',encoding="utf-8") as f:
         f.write(md5_str+'\n')
 
