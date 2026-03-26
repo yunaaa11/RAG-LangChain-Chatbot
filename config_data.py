@@ -25,13 +25,3 @@ session_config={
             "session_id":"user_001",
         }
     }
-
-# 新增：父文档存储路径（用于 Parent-Document Retrieval）
-parent_directory = "./parent_db" 
-
-# 新增：混合检索权重配置
-# [向量检索权重, 关键词检索权重]
-ensemble_weights = [0.5, 0.5]
-
-# 新增：重排序模型召回数量
-rerank_top_k = 5

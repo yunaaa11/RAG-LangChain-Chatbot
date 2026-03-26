@@ -1,13 +1,8 @@
-# 基础框架
 streamlit
 langchain
 langchain-community
 langchain-chroma
-langchain-core
-
-# 检索增强相关
-rank_bm25
-flashrank
-
-# 阿里模型相关
+langchain-openai
 dashscope
+python-dotenv
+pypdf
