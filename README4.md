@@ -6,25 +6,24 @@
 
 ## 🌟 核心功能
 
-* **多格式知识导入**：支持 `.txt` 和 `.pdf` 文件上传，自动提取文本内容。
-* **分段 MD5 增量更新**：对文件进行颗粒度拆分，通过 MD5 校验仅存储“新内容”，极大节省向量化 API 开销。
-* **双引擎检索优化**：
-    * **Top-K 检索**：动态调整返回的知识片段数量。
-    * **分数阈值过滤**：自动剔除相关度较低的干扰信息，确保回复准确性。
-* **流式对话体验**：集成 **阿里通义千问 (Qwen)** 大模型，支持打字机式的实时流式回复。
-* **持久化存储**：
-    * 对话历史自动存入本地 JSON，重启不丢失上下文。
-    * 向量数据持久化于本地 **ChromaDB**。
+* **工业级混合检索 (Hybrid RAG)**：结合 ChromaDB 语义向量检索与 BM25 关键词检索，通过 EnsembleRetriever 实现多路召回，大幅提升在专业术语和长文本下的检索精度。
 
+* **重排序优化 (Reranking)**：集成 Flashrank 精排引擎（ms-marco-TinyBERT 模型），对召回片段进行二次筛选，有效解决大模型“迷失在中间”的问题。
+
+* **智能增量更新**：支持 .txt / .pdf 多格式导入，采用 MD5 颗粒度分段校验，仅对更新内容进行向量化，显著降低 API 调用成本。
+
+* **极致对话体验**：基于 Streamlit 与 阿里通义千问 (Qwen)，实现全链路流式打字机输出，支持本地持久化的多轮对话上下文记忆。
+
+* **工程化日志审计**：内置自动化日志分层系统，静默处理冗长 Prompt，仅记录关键检索链路与系统异常。
 ---
 
 ## 🛠️ 技术栈
 
 * **Frontend**: Streamlit
-* **Orchestration**: LangChain
+* **Orchestration**: LangChain (Core / Community / Chroma)
 * **LLM & Embedding**: Alibaba DashScope (Qwen-Max / Text-Embedding-v4)
-* **Vector Database**: ChromaDB
-
+* **Vector Database**: ChromaDB (Persistent Storage)
+* **Retrieval-Augmented**：BM25 (Keyword Search), Flashrank (Reranking)
 ---
 
 ## 🚀 快速开始

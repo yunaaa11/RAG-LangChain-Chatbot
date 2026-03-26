@@ -2,6 +2,9 @@
 import streamlit as st
 from rag import RagService
 import config_data as config
+# 统一导入，删除对 knowledge_base 的引用
+from vector_stores import VectorStoreService 
+from langchain_community.embeddings import DashScopeEmbeddings
 
 st.title("智能客服")
 st.divider()
@@ -10,8 +13,20 @@ st.divider()
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "你好，有什么可以帮助你？"}]
 
+# 1. 初始化知识库服务并获取增强检索器
+if "enhanced_retriever" not in st.session_state:
+    with st.spinner("正在加载工业级检索引擎..."):
+        # 初始化向量服务
+        kb_service = VectorStoreService(DashScopeEmbeddings(
+            model=config.embedding_model_name,
+            dashscope_api_key=config.dashscope_api_key
+        ))
+        # 构建并存入 session_state
+        st.session_state["enhanced_retriever"] = kb_service.get_retriever()
+
+# 2. 初始化 RagService，并将增强后的检索器传入
 if "rag" not in st.session_state:
-    st.session_state["rag"] = RagService()
+    st.session_state["rag"] = RagService(retriever=st.session_state["enhanced_retriever"])
 
 # 渲染历史消息
 for message in st.session_state["messages"]:
@@ -21,19 +36,14 @@ for message in st.session_state["messages"]:
 prompt = st.chat_input()
 
 if prompt:
-    # 1. 立即显示用户输入并存入历史
     st.chat_message("user").write(prompt)
     st.session_state["messages"].append({"role": "user", "content": prompt})
 
     # 2. AI 思考与流式输出
     with st.spinner("AI思考中..."):
-        # 获取流
         res_stream = st.session_state["rag"].chain.stream({"input": prompt}, config.session_config)
         
-        # 使用 write_stream 并获取其返回值
-        # Streamlit 的 write_stream 会自动处理生成器并返回完整的字符串
         with st.chat_message("assistant"):
             full_response = st.write_stream(res_stream)
         
-        # 3. 将完整的字符串存入历史（注意角色是 assistant）
         st.session_state["messages"].append({"role": "assistant", "content": full_response})

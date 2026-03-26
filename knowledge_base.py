@@ -10,7 +10,14 @@ from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain.retrievers import ParentDocumentRetriever
+from langchain.storage import LocalFileStore
 import tempfile
+from langchain_core.documents import Document
+from logger_config import get_logger
+from langchain.docstore.base import Docstore
+from langchain.storage import create_kv_docstore
+logger = get_logger("KnowledgeBase")
 
 def load_document_to_string(file_path):
     """支持多种格式加载并返回纯文本内容"""
@@ -68,107 +75,166 @@ class KnowledgeBaseSerivce(object):
                                                      ),
               persist_directory=config.persist_directory,#数据库本地存储文件夹
           ) #向量存储的实例Chroma向量库对象
-          self.spliter=RecursiveCharacterTextSplitter(
-            chunk_size=config.chunk_size,#分割后的文本段最大长度
-            chunk_overlap=config.chunk_overlap,#连线文本段之间的字符重叠数据
-            separators=config.separators,#自然段落花费的符号
-            length_function=len,#使用python自带len函数
-          )#文本分割器的对象
-    # def upload_by_str(self,data:str,filename):
-    #     """将传入的字符串，进行向量化，存入向量数据库中""" 
-    #     #先得到传入字符串的md5值
-    #     md5_hex=get_string_md5(data)
-    #     if check_md5(md5_hex):
-    #         return "[跳过]内容已经存在知识库中"
-    #     if len(data)>config.max_split_char_number:
-    #         knowledge_chunks:list[str]=self.spliter.split_text(data)
-    #     else:
-    #         knowledge_chunks=[data] # 直接作为一个元素的列表
+          # 2. 核心修复点：定义父子分割器 (你之前漏掉了这部分赋值)
+        # 子分割器：用于生成存入向量库的索引块
+          self.child_splitter = RecursiveCharacterTextSplitter(chunk_size=400) 
+        # 父分割器：用于生成存入 docstore 的召回块
+          self.parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000) 
 
-    #     metadata={
-    #         "source":filename,
-    #         "create_time":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    #         "operator":"小曹"
-    #     }
-    #     self.chroma.add_texts(#内容就加载到向量里
-    #         #iterable->list\tuple
-    #         texts=knowledge_chunks,
-    #         metadatas=[metadata for _ in knowledge_chunks],
-    #     )
-    #     save_md5(md5_hex)
-    #     return "[成功]内容已经成功载入向量库"
+        # 3. 方案一实现：使用适配器包装本地存储，解决 memoryview 报错
+          parent_cache_path = getattr(config, 'parent_directory', "./parent_folders")
+          os.makedirs(parent_cache_path, exist_ok=True)
+        
+        # 创建原始字节流存储
+          _raw_store = LocalFileStore(parent_cache_path)
+        
+        # 使用 create_kv_docstore 进行自动序列化包装
+        # 这样 ParentDocumentRetriever 存入 Document 对象时会自动转为 bytes
+          self.store = create_kv_docstore(_raw_store)
+    def get_parent_retriever(self):
+        """获取父子文档检索器"""
+        """此时 self.child_splitter 等属性已正确加载"""
+        return ParentDocumentRetriever(
+            vectorstore=self.chroma,
+            docstore=self.store,
+            child_splitter=self.child_splitter,
+            parent_splitter=self.parent_splitter,
+        )
+    
     def upload_by_file(self, uploaded_file, filename):
         """处理 PDF 上传，增加指针重置逻辑"""
+        # 每一个入口都记录日志
+        logger.info(f"收到文件上传请求: {filename}")
+        
+        if filename.lower().endswith('.pdf'):
         # 关键：确保从文件开头开始读取字节
-        uploaded_file.seek(0) 
-        
-        # 1. 创建临时文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(uploaded_file.read()) # 使用 .read() 获取全部字节
-            tmp_path = tmp_file.name
-        
-        try:
-            # 2. 加载 PDF
-            loader = PyPDFLoader(tmp_path)
-            pages = loader.load()
-            full_text = "\n".join([page.page_content for page in pages])
+            uploaded_file.seek(0) 
+            # 1. 创建临时文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_file.read()) # 使用 .read() 获取全部字节
+                tmp_path = tmp_file.name
             
-            # 3. 调用之前的分段 MD5 逻辑
-            return self.upload_by_str(full_text, filename)
-        except Exception as e:
-            return f"[错误] PDF 解析失败: {str(e)}"
-        finally:
-            # 4. 清理临时文件
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            else:
+            try:
+                # 2. 加载 PDF
+                loader = PyPDFLoader(tmp_path)
+                pages = loader.load()
+                full_text = "\n".join([page.page_content for page in pages])
+                logger.info(f"PDF解析成功: {filename}, 共 {len(pages)} 页")
+                
+                # 3. 调用之前的分段 MD5 逻辑
+                return self.upload_by_str(full_text, filename)
+            except Exception as e:
+                logger.error(f"PDF解析异常: {filename}, 错误: {str(e)}")
+                return f"[错误] PDF 解析失败: {str(e)}"
+            finally:
+                # 4. 清理临时文件
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        else:
                 # 5. 处理 TXT：直接解码并进行分段校验
-                text = uploaded_file.getvalue().decode("utf-8")
+                # TXT 处理
+            try:
+                uploaded_file.seek(0)
+                text = uploaded_file.read().decode("utf-8")
                 return self.upload_by_str(text, filename)
+            except Exception as e:
+                logger.error(f"TXT读取异常: {filename}, 错误: {str(e)}")
+                return f"[错误] 文件读取失败: {str(e)}"
+        
 
-    def upload_by_str(self, data: str, filename):
-        """
-        核心逻辑：实现分段 MD5 校验与增量存储
-        """
-        # 1. 将长文本物理切分为多个小片段 (Chunk)
-        knowledge_chunks = self.spliter.split_text(data)
+    # def upload_by_str(self, data: str, filename):
+    #     """
+    #     核心逻辑：实现分段 MD5 校验与增量存储
+    #     """
+    #     logger.info(f"开始对 {filename} 进行分段校验...")
+    #     # 1. 将长文本物理切分为多个小片段 (Chunk)
+    #     knowledge_chunks = self.spliter.split_text(data)
         
-        new_chunks = []
-        for chunk in knowledge_chunks:
-            # 2. 为每一个小片段计算唯一的 MD5 “指纹”
-            chunk_md5 = get_string_md5(chunk)
+    #     new_chunks = []
+    #     for chunk in knowledge_chunks:
+    #         # 2. 为每一个小片段计算唯一的 MD5 “指纹”
+    #         chunk_md5 = get_string_md5(chunk)
             
-            # 3. 检查该片段是否已记录在 md5.text 中
-            if not check_md5(chunk_md5):
-                # 4. 如果是新内容，加入待添加列表并记录 MD5
-                new_chunks.append(chunk)
-                save_md5(chunk_md5)
+    #         # 3. 检查该片段是否已记录在 md5.text 中
+    #         if not check_md5(chunk_md5):
+    #             # 4. 如果是新内容，加入待添加列表并记录 MD5
+    #             new_chunks.append(chunk)
+    #             save_md5(chunk_md5)
         
-        # 5. 只有识别到新片段时，才调用 API 进行向量化并存入库
-        if new_chunks:
-            self.chroma.add_texts(
-                texts=new_chunks,
-                metadatas=[{
+    #     # 5. 只有识别到新片段时，才调用 API 进行向量化并存入库
+    #     if new_chunks:
+    #         self.chroma.add_texts(
+    #             texts=new_chunks,
+    #             metadatas=[{
+    #                 "source": filename,
+    #                 "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    #                 "operator": "小曹" # 保持你原有的元数据标记
+    #             } for _ in new_chunks]
+    #         )
+    #         msg = f"[成功] {filename} 新增 {len(new_chunks)} 条知识片段"
+    #         logger.info(msg) # 记录成功日志
+    #         return f"[成功] 识别到新内容，新增 {len(new_chunks)} 条知识片段"
+        
+    #     else:
+    #         msg = f"[跳过] {filename} 内容已存在，未更新"
+    #         logger.warning(msg) # 记录警告日志
+    #         return msg
+    # def upload_by_str(self, data: str, filename):
+    #     # 注意：使用 ParentDocumentRetriever 时，它会自动处理 MD5 逻辑或全量覆盖
+    #     # 这里建议将 data 转为 Document 对象再添加
+    #     from langchain_core.documents import Document
+    #     doc = Document(page_content=data, metadata={"source": filename})
+        
+    #     retriever = self.get_parent_retriever()
+    #     retriever.add_documents([doc], ids=None)
+    #     return "[成功] 已完成父子文档索引构建"
+    def upload_by_str(self, data: str, filename):
+        """核心逻辑：实现父子文档构建"""
+        logger.info(f"开始对 {filename} 进行父子文档索引构建...")
+        
+        # 1. 计算全文 MD5 校验，防止重复处理整个文件
+        md5_hex = get_string_md5(data)
+        if check_md5(md5_hex):
+            logger.warning(f"[跳过] {filename} 内容已存在")
+            return "[跳过] 内容已经存在知识库中"
+
+        try:
+            # 2. 构造 Document 对象
+            doc = Document(
+                page_content=data, 
+                metadata={
                     "source": filename,
                     "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "operator": "小曹" # 保持你原有的元数据标记
-                } for _ in new_chunks]
+                    "operator": "小曹"
+                }
             )
-            return f"[成功] 识别到新内容，新增 {len(new_chunks)} 条知识片段"
-        
-        # 6. 如果所有片段都已存在，则跳过，避免重复
-        return "[跳过] 该文件的所有片段已存在于知识库中"
+            
+            # 3. 使用 ParentDocumentRetriever 添加文档
+            # 它会自动完成：父文档存入 self.store，子片段向量化存入 self.chroma
+            retriever = self.get_parent_retriever()
+            retriever.add_documents([doc], ids=None)
+            
+            # 4. 记录 MD5
+            save_md5(md5_hex)
+            
+            msg = f"[成功] {filename} 已完成父子文档索引构建"
+            logger.info(msg)
+            return msg
+        except Exception as e:
+            logger.error(f"索引构建失败: {str(e)}")
+            return f"[错误] 索引失败: {str(e)}"
+    def get_all_documents(self):
+        """获取向量库中所有的原始文档，用于构建 BM25 索引"""
+        # 从 Chroma 中提取所有数据并转为 Document 对象
+        data = self.chroma.get()
+        docs = []
+        for content, metadata in zip(data['documents'], data['metadatas']):
+            docs.append(Document(page_content=content, metadata=metadata))
+        return docs
 
 if __name__=='__main__':
     service=KnowledgeBaseSerivce()
-    r=service.upload_by_str("小明55","testfile")
+   # 测试代码
+    test_text = "这是一段用于测试父子文档检索功能的长文本内容。"
+    r = service.upload_by_str(test_text, "test_v1")
     print(r)
-    # save_md5("4cf350692a4a3bb54d13daacfe8c683b")
-    # print(check_md5("4cf350692a4a3bb54d13daacfe8c683b"))
-
-    # r1=get_string_md5("小明")
-    # r2=get_string_md5("小明")
-    # r3=get_string_md5("小明11")
-    # print(r1)
-    # print(r2)
-    # print(r3)
