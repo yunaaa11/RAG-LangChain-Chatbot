@@ -10,12 +10,14 @@ def setup_logger(name, log_file, level=logging.INFO):
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    # 文件处理器
+    # 文件处理器 确定存哪
     handler = logging.FileHandler(f'logs/{log_file}', encoding='utf-8')
     handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    #日志级别 (Level) 过滤器。规定多大的事儿才需要记录（比如：小事忽略，只记重要的）。
+    
     # 防止重复添加 handler
     if not logger.handlers:
         logger.addHandler(handler)

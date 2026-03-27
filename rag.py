@@ -11,7 +11,7 @@ import config_data as config
 class RagService(object):
     def __init__(self, retriever=None):
         # 1. 确定检索器逻辑
-        if retriever:
+        if retriever:#可扩展性。不需要修改 RagService 的内部代码就能更换检索逻辑。
             self.retriever = retriever
             sys_logger.info("RagService 使用传入的增强检索器")
         else:
@@ -80,3 +80,34 @@ class RagService(object):
             history_messages_key="history",
         )
         return conversation_chain
+if __name__ == "__main__":
+    # 1. 假设你已经有了 VectorStoreService 产生的 retriever
+    # 这里我们直接启动 RagService
+    try:
+        service = RagService()
+        print("--- RAG 系统初始化成功 ---")
+
+        # 2. 定义一个会话 ID (模拟不同用户)
+        session_id = "user_xiaocao_123"
+        config_dict = {"configurable": {"session_id": session_id}}
+
+        # 3. 第一轮对话：告诉它信息
+        print("\n[用户]: 我体重180斤，身高180cm，推荐个尺码。")
+        res1 = service.chain.invoke(
+            {"input": "我体重180斤，身高180cm，推荐个尺码。"}, 
+            config=config_dict
+        )
+        print(f"[AI]: {res1}")
+
+        # 4. 第二轮对话：测试长期记忆 (不提体重，看它记得不)
+        print("\n[用户]: 这种体型穿黑色显瘦吗？")
+        res2 = service.chain.invoke(
+            {"input": "这种体型穿黑色显瘦吗？"}, 
+            config=config_dict
+        )
+        print(f"[AI]: {res2}")
+        
+        print(f"\n--- 提示：你可以去查看 ./chat_history/{session_id} 文件，记忆已持久化 ---")
+
+    except Exception as e:
+        print(f"运行失败，请检查配置或 API Key: {e}")

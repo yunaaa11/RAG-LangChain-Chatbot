@@ -31,6 +31,8 @@ def load_document_to_string(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
     return ""
+#负责“数据清洗”与“指纹识别”的函数 check_md5 get_string_md5
+#幂等性 保证同一个文件无论传多少次，数据库里的状态都是一样的，不会重复。
 def check_md5(md5_str:str):
     '''检查传入的md5字符串是否已经被处理过
     return False(md5未处理过) True(已经处理过，已有记录)
@@ -64,6 +66,7 @@ def get_string_md5(input_str:str,encoding='utf-8'):
 
 #知识库更新服务
 class KnowledgeBaseSerivce(object):
+#负责“持久化”与“结构化”的函数 定义了你的档案柜摆在哪里
     def __init__(self):
           #如果文件夹不存在就创建，如果存在就跳过
           os.makedirs(config.persist_directory,exist_ok=True)
@@ -81,19 +84,18 @@ class KnowledgeBaseSerivce(object):
         # 父分割器：用于生成存入 docstore 的召回块
           self.parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000) 
 
-        # 3. 方案一实现：使用适配器包装本地存储，解决 memoryview 报错
+        # 3. 方案一实现：使用适配器包装本地存储，解决 memoryview 报错 文档库
           parent_cache_path = getattr(config, 'parent_directory', "./parent_folders")
           os.makedirs(parent_cache_path, exist_ok=True)
         
         # 创建原始字节流存储
           _raw_store = LocalFileStore(parent_cache_path)
-        
-        # 使用 create_kv_docstore 进行自动序列化包装
+        #LocalFileStore 是一个工具类。它的功能是将数据以文件的形式保存在本地磁盘上，
+        # 使用 create_kv_docstore 进行自动序列化包装 解决了 Python 对象存入本地磁盘时的序列化报错问题。
         # 这样 ParentDocumentRetriever 存入 Document 对象时会自动转为 bytes
           self.store = create_kv_docstore(_raw_store)
     def get_parent_retriever(self):
-        """获取父子文档检索器"""
-        """此时 self.child_splitter 等属性已正确加载"""
+        """获取父子 文档库 向量库检索器"""
         return ParentDocumentRetriever(
             vectorstore=self.chroma,
             docstore=self.store,
@@ -102,14 +104,14 @@ class KnowledgeBaseSerivce(object):
         )
     
     def upload_by_file(self, uploaded_file, filename):
-        """处理 PDF 上传，增加指针重置逻辑"""
+        """处理 PDF 上传，增加指针重置逻辑 转成纯文本"""
         # 每一个入口都记录日志
         logger.info(f"收到文件上传请求: {filename}")
         
         if filename.lower().endswith('.pdf'):
         # 关键：确保从文件开头开始读取字节
             uploaded_file.seek(0) 
-            # 1. 创建临时文件
+            # 1. 创建临时文件  处理pdf
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 tmp_file.write(uploaded_file.read()) # 使用 .read() 获取全部字节
                 tmp_path = tmp_file.name
@@ -140,32 +142,33 @@ class KnowledgeBaseSerivce(object):
             except Exception as e:
                 logger.error(f"TXT读取异常: {filename}, 错误: {str(e)}")
                 return f"[错误] 文件读取失败: {str(e)}"
-        
+#负责“父子索引构建”的逻辑       
     def upload_by_str(self, data: str, filename):
         """核心逻辑：实现父子文档构建"""
         logger.info(f"开始对 {filename} 进行父子文档索引构建...")
         
-        # 1. 计算全文 MD5 校验，防止重复处理整个文件
+        # 1. 查重：计算全文 MD5 校验，防止重复处理整个文件
         md5_hex = get_string_md5(data)
         if check_md5(md5_hex):
             logger.warning(f"[跳过] {filename} 内容已存在")
             return "[跳过] 内容已经存在知识库中"
 
         try:
-            # 2. 构造 Document 对象
+            # 2. 打包：构造 Document 对象 结构化
             doc = Document(
                 page_content=data, 
                 metadata={
                     "source": filename,
                     "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "operator": "小曹"
+                    "operator": getattr(config, 'operator_name', "默认管理员")
                 }
             )
             
-            # 3. 使用 ParentDocumentRetriever 添加文档
-            # 它会自动完成：父文档存入 self.store，子片段向量化存入 self.chroma
+            # 3. 分发：使用 ParentDocumentRetriever 添加文档  搜小块、读大块
             retriever = self.get_parent_retriever()
             retriever.add_documents([doc], ids=None)
+            # 它会自动完成：父文档存入 self.store，子片段向量化存入 self.chroma
+
             
             # 4. 记录 MD5
             save_md5(md5_hex)
@@ -176,9 +179,12 @@ class KnowledgeBaseSerivce(object):
         except Exception as e:
             logger.error(f"索引构建失败: {str(e)}")
             return f"[错误] 索引失败: {str(e)}"
+#负责“混合搜索准备”的逻辑  全量数据解包
     def get_all_documents(self):
         """获取向量库中所有的原始文档，用于构建 BM25 索引"""
-        # 从 Chroma 中提取所有数据并转为 Document 对象
+        #你的函数：扮演了搬运工的角色，把碎片从 Chroma 搬出来，装进 Document 盒子里，送给 BM25 扫描。
+        # 从 Chroma 中提取所有数据并转为 Document 对象  返回的 docs：是临时内存对象
+        #  保证了你以后想增加“关键词搜索”时，不需要重新解析文件，直接从现有库里捞数据即可。     
         data = self.chroma.get()
         docs = []
         for content, metadata in zip(data['documents'], data['metadatas']):

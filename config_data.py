@@ -15,6 +15,8 @@ chunk_overlap=100
 separators=["\n\n","\n",".","!","?","。","!","?"," ","'"]
 max_split_char_number=1000 #文本分割器的阈值
 
+operator_name = "小曹"
+
 # 增加返回的片段数量
 top_k = 4 
 # 设置相似度分数阈值（Chroma通常使用L2距离，数值越小越相似）

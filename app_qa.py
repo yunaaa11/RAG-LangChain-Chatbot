@@ -1,13 +1,13 @@
-#流式输出：前端 app_qa.py 使用 st.write_stream 实现了打字机效果，提升用户体验。
 import streamlit as st
 from rag import RagService
 import config_data as config
-# 统一导入，删除对 knowledge_base 的引用
 from vector_stores import VectorStoreService 
 from langchain_community.embeddings import DashScopeEmbeddings
 
 st.title("智能客服")
 st.divider()
+#if "xxx" not in st.session_state
+#懒加载：只做一次。检查缓存里有没有，没有才执行。节约时间
 
 # 初始化 session_state
 if "messages" not in st.session_state:
@@ -29,7 +29,7 @@ if "rag" not in st.session_state:
     st.session_state["rag"] = RagService(retriever=st.session_state["enhanced_retriever"])
 
 # 渲染历史消息
-for message in st.session_state["messages"]:
+for message in st.session_state["messages"]:#保证页面刷新后，之前的对话框不会消失
     st.chat_message(message["role"]).write(message["content"])
 
 # 用户输入
@@ -42,7 +42,6 @@ if prompt:
     # 2. AI 思考与流式输出
     with st.spinner("AI思考中..."):
         res_stream = st.session_state["rag"].chain.stream({"input": prompt}, config.session_config)
-        
         with st.chat_message("assistant"):
             full_response = st.write_stream(res_stream)
         

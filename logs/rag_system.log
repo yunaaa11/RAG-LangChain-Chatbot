@@ -22,3 +22,16 @@
 2026-03-26 11:44:21,315 - VectorStore - INFO - 大模型输入：已合并 3 条参考片段
 2026-03-26 11:45:22,133 - VectorStore - INFO - 大模型输入：已合并 3 条参考片段
 2026-03-26 11:46:25,954 - VectorStore - INFO - 大模型输入：已合并 3 条参考片段
+2026-03-26 21:40:23,153 - chromadb.telemetry.product.posthog - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-03-26 21:40:24,029 - VectorStore - INFO - 开始构建增强检索器...
+2026-03-26 21:40:24,141 - VectorStore - INFO - 成功获取知识库文档，共计: 11 条
+2026-03-26 21:40:24,148 - VectorStore - INFO - 正在加载 Flashrank Rerank 模型 (TinyBERT)...
+2026-03-26 21:40:25,009 - VectorStore - INFO - 增强检索器 (Hybrid + Rerank) 初始化完成
+2026-03-27 10:55:32,216 - chromadb.telemetry.product.posthog - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-03-27 10:55:33,060 - VectorStore - INFO - 开始构建增强检索器...
+2026-03-27 10:55:33,153 - VectorStore - INFO - 成功获取知识库文档，共计: 11 条
+2026-03-27 10:55:33,154 - VectorStore - INFO - 正在加载 Flashrank Rerank 模型 (TinyBERT)...
+2026-03-27 10:55:33,260 - VectorStore - INFO - 增强检索器 (Hybrid + Rerank) 初始化完成
+2026-03-27 10:55:33,260 - VectorStore - INFO - RagService 初始化默认检索器
+2026-03-27 10:55:35,230 - VectorStore - INFO - 大模型输入：已合并 3 条参考片段
+2026-03-27 10:55:40,676 - VectorStore - INFO - 大模型输入：已合并 3 条参考片段

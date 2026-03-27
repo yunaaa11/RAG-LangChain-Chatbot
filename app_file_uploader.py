@@ -13,6 +13,7 @@ uploader_file=st.file_uploader(
 if "service" not in st.session_state:
     st.session_state["service"]=KnowledgeBaseSerivce()
 #如果不存在，说明是第一次运行该页面，需要创建一个 KnowledgeBaseSerivce 实例并存入会话状态。
+
 if uploader_file is not None:
     #提取文件信息
     file_name=uploader_file.name
